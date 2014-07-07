@@ -99,6 +99,20 @@
         <tag>HEAD</tag>
     </scm>
 
+  <distributionManagement>
+    <repository>
+      <uniqueVersion>false</uniqueVersion>
+      <id>coveolocal</id>
+      <name>Local Internal Repository</name>
+      <url>${env.COVEO_LOCAL_MAVEN_REPO}</url>
+    </repository>
+    <site>
+      <id>${project.artifactId}</id>
+      <name>${project.artifactId}</name>
+      <url>${project.artifactId}/</url>
+    </site>
+  </distributionManagement>
+
   <repositories>
     <repository>
       <id>projectodd-upstream</id>
