@@ -1,16 +1,14 @@
-package org.dynjs.runtime;
+package org.dynjs.runtime.builtins.types.error;
 
 import org.dynjs.exception.ThrowException;
-
-import java.util.ArrayList;
-import java.util.List;
+import org.dynjs.runtime.*;
 
 public class JavaStackGetter extends AbstractNativeFunction {
 
     private final ThrowException e;
 
-    public JavaStackGetter(GlobalObject globalObject, ThrowException e) {
-        super(globalObject);
+    public JavaStackGetter(GlobalContext globalContext, ThrowException e) {
+        super(globalContext);
         this.e = e;
     }
 
@@ -66,16 +64,31 @@ public class JavaStackGetter extends AbstractNativeFunction {
     }
 
     void appendHeader(StringBuilder buf, ExecutionContext context, JSObject jsObject) {
-        if (jsObject.hasProperty(context, "name")) {
-            buf.append( Types.toString(context, jsObject.get(context, "name")) );
-        } else {
-            buf.append( "<unknown>" );
+
+        boolean stringified = false;
+
+        if ( jsObject.hasProperty( context, "toString" ) ) {
+            Object toString = jsObject.get(context, "toString");
+            if ( toString instanceof JSFunction ) {
+                buf.append( ((JSFunction) toString).call( context ) );
+                stringified = true;
+            }
         }
 
-        if (jsObject.hasProperty(context, "message")) {
-            String message = Types.toString(context, jsObject.get(context, "message"));
-            if ( message != null && ! message.equals("")) {
-                buf.append( ": " ).append( message );
+        if ( ! stringified ) {
+            if (jsObject.hasProperty(context, "name")) {
+                buf.append(Types.toString(context, jsObject.get(context, "name")));
+            } else {
+                buf.append("<unknown>");
+            }
+
+            if (jsObject.hasProperty(context, "message")) {
+                Object message = Types.toString(context, jsObject.get(context, "message"));
+                if ((message != null) && !message.equals("") && (message != Types.UNDEFINED)) {
+                    buf.append(": ").append(message);
+                } else {
+
+                }
             }
         }
 
@@ -88,7 +101,7 @@ public class JavaStackGetter extends AbstractNativeFunction {
             if (each.getClassName().startsWith("org.dynjs") || each.getClassName().startsWith( "java.lang.invoke" )) {
                 break;
             }
-            buf.append("  at " + each.toString()).append("\n");
+            buf.append("  at ").append(each).append("\n");
         }
     }
 

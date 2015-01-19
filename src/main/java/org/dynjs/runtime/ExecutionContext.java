@@ -2,6 +2,7 @@ package org.dynjs.runtime;
 
 import org.dynjs.Clock;
 import org.dynjs.Config;
+import org.dynjs.compiler.CompilationContext;
 import org.dynjs.compiler.JSCompiler;
 import org.dynjs.exception.ThrowException;
 import org.dynjs.ir.IRJSFunction;
@@ -9,19 +10,27 @@ import org.dynjs.ir.JITCompiler;
 import org.dynjs.parser.ast.FunctionDeclaration;
 import org.dynjs.parser.ast.VariableDeclaration;
 import org.dynjs.runtime.BlockManager.Entry;
-import org.dynjs.runtime.wrapper.JavascriptFunction;
+import org.dynjs.runtime.builtins.types.error.StackElement;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
 
-public class ExecutionContext {
+public class ExecutionContext implements CompilationContext {
 
     public static ExecutionContext createGlobalExecutionContext(DynJS runtime) {
         // 10.4.1.1
         LexicalEnvironment env = LexicalEnvironment.newGlobalEnvironment(runtime);
-        return new ExecutionContext(runtime, null, env, env, runtime.getGlobalObject(), false);
+        return new ExecutionContext(runtime, null, env, env, runtime.getGlobalContext().getObject(), false);
+    }
+
+    public static ExecutionContext createDefaultGlobalExecutionContext(DynJS runtime) {
+        // 10.4.1.1
+        LexicalEnvironment env = LexicalEnvironment.newGlobalEnvironment(runtime);
+        ExecutionContext context = new ExecutionContext(runtime, null, env, env, runtime.getGlobalContext().getObject(), false);
+        context.blockManager = new BlockManager();
+        return context;
     }
 
     public static ExecutionContext createGlobalExecutionContext(DynJS runtime, InitializationListener listener) {
@@ -41,8 +50,11 @@ public class ExecutionContext {
     private LexicalEnvironment variableEnvironment;
     private Object thisBinding;
     private boolean strict;
+    private boolean inEval;
+    private ResourceQuota.WatchDog resourceWatchDog;
 
     private int lineNumber;
+    private int columnNumber;
     private String fileName;
     private String debugContext = "<eval>";
     private VariableValues vars;
@@ -55,6 +67,8 @@ public class ExecutionContext {
 
     private List<StackElement> throwStack;
 
+    private BlockManager blockManager;
+
     public ExecutionContext(DynJS runtime, ExecutionContext parent, LexicalEnvironment lexicalEnvironment, LexicalEnvironment variableEnvironment, Object thisBinding, boolean strict) {
         this.runtime = runtime;
         this.parent = parent;
@@ -62,6 +76,10 @@ public class ExecutionContext {
         this.variableEnvironment = variableEnvironment;
         this.thisBinding = thisBinding;
         this.strict = strict;
+
+        if (parent != null) {
+            this.resourceWatchDog = parent.resourceWatchDog;
+        }
     }
 
     public void setFunctionParameters(Object[] args) {
@@ -110,6 +128,10 @@ public class ExecutionContext {
         return this.strict;
     }
 
+    public boolean inEval() {
+        return this.inEval;
+    }
+
     public Clock getClock() {
         return this.runtime.getConfig().getClock();
     }
@@ -146,7 +168,9 @@ public class ExecutionContext {
     // ----------------------------------------------------------------------
 
     public Completion execute(JSProgram program) {
+        BlockManager originalBlockManager = this.blockManager;
         try {
+            this.blockManager = program.getBlockManager();
             ThreadContextManager.pushContext(this);
             setStrict(program.isStrict());
             this.fileName = program.getFileName();
@@ -155,22 +179,24 @@ public class ExecutionContext {
                 return program.execute(this);
             } catch (ThrowException e) {
                 throw e;
-          //  } catch (Throwable t) {
-            //    throw new ThrowException(this, t);
             }
         } finally {
             ThreadContextManager.popContext();
+            this.blockManager = originalBlockManager;
         }
     }
 
     public Object eval(JSProgram eval, boolean direct) {
+        BlockManager originalBlockManager = this.blockManager;
         try {
             ExecutionContext evalContext = createEvalExecutionContext(eval, direct);
+            evalContext.blockManager = eval.getBlockManager();
             ThreadContextManager.pushContext(evalContext);
             Completion result = eval.execute(evalContext);
             return result.value;
         } finally {
             ThreadContextManager.popContext();
+            this.blockManager = originalBlockManager;
         }
     }
 
@@ -263,7 +289,6 @@ public class ExecutionContext {
             obj = (JSObject) result;
         }
 
-        ((JSObject) obj).defineNonEnumerableProperty(this.getGlobalObject(), "__ctor__", ctorName.toString());
         // Otherwise return obj
         return obj;
     }
@@ -303,9 +328,9 @@ public class ExecutionContext {
         LexicalEnvironment evalVarEnv = null;
 
         if (!direct) {
-            evalThisBinding = getGlobalObject();
-            evalLexEnv = LexicalEnvironment.newGlobalEnvironment(getGlobalObject());
-            evalVarEnv = LexicalEnvironment.newGlobalEnvironment(getGlobalObject());
+            evalThisBinding = getGlobalContext();
+            evalLexEnv = LexicalEnvironment.newGlobalEnvironment(getGlobalContext().getObject());
+            evalVarEnv = LexicalEnvironment.newGlobalEnvironment(getGlobalContext().getObject());
         } else {
             evalThisBinding = this.thisBinding;
             evalLexEnv = this.getLexicalEnvironment();
@@ -332,7 +357,7 @@ public class ExecutionContext {
             thisBinding = thisArg;
         } else {
             if (thisArg == null || thisArg == Types.NULL || thisArg == Types.UNDEFINED) {
-                thisBinding = getGlobalObject();
+                thisBinding = getGlobalContext().getObject();
             } else if (!(thisArg instanceof JSObject)) {
                 // thisBinding = Types.toObject(this, thisArg);
                 thisBinding = Types.toThisObject(this, thisArg);
@@ -353,6 +378,13 @@ public class ExecutionContext {
         context.debugContext = function.getDebugContext();
         context.functionReference = functionReference;
         context.setFunctionParameters(arguments);
+        return context;
+    }
+
+    public ExecutionContext createResourceQuotaExecutionObject(ResourceQuota quota) {
+        ExecutionContext context = new ExecutionContext(this.runtime, this, this.lexicalEnvironment, this.variableEnvironment, this.thisBinding, this.strict);
+        context.resourceWatchDog = quota.createWatchDog();
+
         return context;
     }
 
@@ -449,13 +481,13 @@ public class ExecutionContext {
     private Arguments createArgumentsObject(final JSFunction function, final Object[] arguments) {
         // 10.6
 
-        Arguments obj = new Arguments(getGlobalObject());
+        Arguments obj = new Arguments(getGlobalContext());
         obj.defineOwnProperty(this, "length",
                 PropertyDescriptor.newDataPropertyDescriptor(arguments.length, true, true, false), false);
 
         String[] names = function.getFormalParameters();
 
-        JSObject map = new DynObject(getGlobalObject());
+        JSObject map = new DynObject(getGlobalContext());
         List<String> mappedNames = new ArrayList<>();
 
         final LexicalEnvironment env = getVariableEnvironment();
@@ -474,8 +506,8 @@ public class ExecutionContext {
                             mappedNames.add(name);
 
                             PropertyDescriptor desc = new PropertyDescriptor();
-                            desc.setSetter(new ArgSetter(getGlobalObject(), env, name));
-                            desc.setGetter(new ArgGetter(getGlobalObject(), env, name));
+                            desc.setSetter(new ArgSetter(getGlobalContext(), env, name));
+                            desc.setGetter(new ArgGetter(getGlobalContext(), env, name));
                             desc.setConfigurable(true);
                             map.defineOwnProperty(this, "" + i, desc, false);
                         }
@@ -489,7 +521,7 @@ public class ExecutionContext {
         }
 
         if (function.isStrict()) {
-            final JSFunction thrower = (JSFunction) getGlobalObject().get(this, "__throwTypeError");
+            final JSFunction thrower = getGlobalContext().getThrowTypeError();
 
             obj.defineOwnProperty(this, "caller",
                     PropertyDescriptor.newAccessorPropertyDescriptor(thrower, thrower), false);
@@ -546,8 +578,8 @@ public class ExecutionContext {
         return this.runtime.getConfig();
     }
 
-    public GlobalObject getGlobalObject() {
-        return this.runtime.getGlobalObject();
+    public GlobalContext getGlobalContext() {
+        return this.runtime.getGlobalContext();
     }
 
     public JSCompiler getCompiler() {
@@ -555,7 +587,15 @@ public class ExecutionContext {
     }
 
     public BlockManager getBlockManager() {
-        return getGlobalObject().getBlockManager();
+        if ( this.blockManager != null ) {
+            return this.blockManager;
+        }
+
+        if ( this.parent != null ) {
+            return this.parent.getBlockManager();
+        }
+
+        return null;
     }
 
     public DynJS getRuntime() {
@@ -567,7 +607,7 @@ public class ExecutionContext {
     }
 
     public Entry retrieveBlockEntry(int statementNumber) {
-        return getGlobalObject().retrieveBlockEntry(statementNumber);
+        return getBlockManager().retrieve( statementNumber );
     }
 
     public JSObject createTypeError(String message) {
@@ -591,13 +631,14 @@ public class ExecutionContext {
     }
 
     public JSObject createError(String type, String message) {
-        JSFunction func = (JSFunction) getGlobalObject().get(this, type);
+        JSFunction func = getGlobalContext().getType(type);
         JSObject err = null;
         if (message == null) {
             err = (JSObject) construct((Object) null, func);
         } else {
             err = (JSObject) construct((Object) null, func, message);
         }
+        err.put(this, "__native", true, false);
         return err;
 
     }
@@ -609,12 +650,18 @@ public class ExecutionContext {
         }
     }
 
-    protected StackElement getStackElement() {
-        return new StackElement(this.fileName, this.lineNumber, this.debugContext);
+    public StackElement getStackElement() {
+        String locationContext = this.debugContext;
+        if ( locationContext.equals( "<anonymous>" ) ) {
+            if ( this.functionReference != null && this.functionReference instanceof Reference ) {
+                locationContext = ((Reference) this.functionReference).getReferencedName();
+            }
+        }
+        return new StackElement(locationContext, this);
     }
 
     public JSObject getPrototypeFor(String type) {
-        return getGlobalObject().getPrototypeFor(type);
+        return getGlobalContext().getPrototypeFor(type);
     }
 
     public String toString() {
@@ -623,5 +670,23 @@ public class ExecutionContext {
 
     public DynamicClassLoader getClassLoader() {
         return getRuntime().getConfig().getClassLoader();
+    }
+
+    public void setColumnNumber(int column) {
+        this.columnNumber = column;
+    }
+
+    public int getColumnNumber() {
+        return this.columnNumber;
+    }
+
+    public void inEval(boolean b) {
+        this.inEval = b;
+    }
+
+    public void checkResourceUsage() {
+        if (this.resourceWatchDog != null) {
+            this.resourceWatchDog.check();
+        }
     }
 }

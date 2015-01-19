@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <modelVersion>4.0.0</modelVersion>
+        <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.dynjs</groupId>
     <artifactId>dynjs</artifactId>
@@ -17,7 +17,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <version.aesh>0.54</version.aesh>
+        <version.aesh>0.56</version.aesh>
         <version.args4j>2.0.26</version.args4j>
         <version.dirgra>0.1</version.dirgra>
         <version.fest-assert>1.4</version.fest-assert>
@@ -26,14 +26,11 @@
         <version.jackson-core-asl>1.9.9</version.jackson-core-asl>
         <version.jitescript>0.4.0</version.jitescript>
         <version.jnr-posix>3.0.1</version.jnr-posix>
-        <version.joni>2.1.0</version.joni>
+        <version.joni>2.1.4</version.joni>
         <version.junit>4.8.2</version.junit>
         <version.mockito-core>1.8.5</version.mockito-core>
         <version.options>1.0</version.options>
-        <version.rephract>1.x.incremental.87</version.rephract>
-        <!--
-        <version.rephract>2.0.0.beta1-SNAPSHOT</version.rephract>
-        -->
+        <version.rephract>2.0.1</version.rephract>
         <test.pattern>**/*Spec.js</test.pattern>
         <skipGitVersion>false</skipGitVersion>
     </properties>
@@ -96,7 +93,7 @@
         <connection>scm:git:git@github.com:dynjs/dynjs.git</connection>
         <developerConnection>scm:git:git@github.com:dynjs/dynjs.git</developerConnection>
         <url>git@github.com:dynjs/dynjs.git</url>
-        <tag>HEAD</tag>
+        <tag>v0.3.1</tag>
     </scm>
 
   <distributionManagement>
@@ -421,6 +418,7 @@
                         <manifest>
                             <addClasspath>true</addClasspath>
                             <classpathPrefix>lib/</classpathPrefix>
+                            <useUniqueVersions>false</useUniqueVersions>
                             <mainClass>org.dynjs.cli.Main</mainClass>
                         </manifest>
                     </archive>
@@ -631,16 +629,13 @@
                                     <goal>java</goal>
                                 </goals>
                                 <configuration>
-                                    <mainClass>org.jasmine.cli.Main</mainClass>
+                                    <mainClass>org.dynjs.TestRunner</mainClass>
                                     <classpathScope>test</classpathScope>
-                                    <arguments>
-                                        <argument>--pattern</argument>
-                                        <argument>${test.pattern}</argument>
-                                        <argument>--format</argument>
-                                        <argument>DOC</argument>
-                                        <argument>--compile-mode</argument>
-                                        <argument>OFF</argument>
-                                    </arguments>
+                                    <cleanupDaemonThreads>false</cleanupDaemonThreads>
+                                        <daemonThreadJoinTimeout>1000</daemonThreadJoinTimeout>
+                                        <systemPropertyVariables>
+                                        <dynjs.compile.mode>OFF</dynjs.compile.mode>
+                                    </systemPropertyVariables>
                                 </configuration>
                             </execution>
                         </executions>

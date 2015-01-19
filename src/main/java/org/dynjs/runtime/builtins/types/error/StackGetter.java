@@ -1,4 +1,9 @@
-package org.dynjs.runtime;
+package org.dynjs.runtime.builtins.types.error;
+
+import org.dynjs.runtime.AbstractNativeFunction;
+import org.dynjs.runtime.ExecutionContext;
+import org.dynjs.runtime.JSObject;
+import org.dynjs.runtime.Types;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -8,7 +13,7 @@ public class StackGetter extends AbstractNativeFunction {
     private List<StackElement> stack;
 
     public StackGetter(ExecutionContext context) {
-        super(context.getGlobalObject());
+        super(context.getGlobalContext());
         final List<StackElement> stack = new ArrayList<>();
         context.collectStackElements(stack);
         this.stack = stack;
