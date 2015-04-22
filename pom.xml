@@ -99,10 +99,9 @@
 
   <distributionManagement>
     <repository>
-      <uniqueVersion>false</uniqueVersion>
-      <id>coveolocal</id>
-      <name>Local Internal Repository</name>
-      <url>${env.COVEO_LOCAL_MAVEN_REPO}</url>
+      <id>Coveo</id>
+      <name>Coveo-releases</name>
+      <url>https://maven.corp.coveo.com/artifactory/ext-release-local</url>
     </repository>
     <site>
       <id>${project.artifactId}</id>
